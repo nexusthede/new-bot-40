@@ -5,13 +5,12 @@ const express = require("express");
 const app = express();
 app.get("/", (req, res) => res.send("Bot is alive!"));
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Keep-alive server running on port ${PORT}`));
+app.listen(PORT, () => console.log(`Keep-alive running on port ${PORT}`));
 
 // --------------------
 // DISCORD SETUP
 // --------------------
 const { Client, GatewayIntentBits, EmbedBuilder, PermissionsBitField, ChannelType } = require("discord.js");
-
 const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
@@ -44,10 +43,7 @@ let privateVCId = null;
 // --------------------
 // EMBED HELPERS
 // --------------------
-const embedMsg = (guild, desc) => new EmbedBuilder()
-    .setColor(darkBlue)
-    .setAuthor({ name: guild.name, iconURL: guild.iconURL({ dynamic: true }) })
-    .setDescription(desc);
+const embedMsg = (desc) => new EmbedBuilder().setColor(darkBlue).setDescription(desc);
 
 // --------------------
 // LEADERBOARDS
@@ -57,10 +53,8 @@ function buildChatLB(guild) {
         .filter(([id]) => guild.members.cache.has(id) && !guild.members.cache.get(id).user.bot)
         .sort((a,b) => b[1]-a[1])
         .slice(0,10);
-
     const medals = ["🥇","🥈","🥉"];
     const desc = arr.map(([id,count],i) => `${i<3?medals[i]+" ":""}${i+1} — <@${id}> • ${count} messages`).join("\n") || "No messages yet";
-
     return new EmbedBuilder()
         .setColor(darkBlue)
         .setAuthor({ name:guild.name, iconURL:guild.iconURL({ dynamic:true }) })
@@ -74,10 +68,8 @@ function buildVCLB(guild) {
         .filter(([id]) => guild.members.cache.has(id) && !guild.members.cache.get(id).user.bot)
         .sort((a,b)=>b[1]-a[1])
         .slice(0,10);
-
     const medals = ["🥇","🥈","🥉"];
     const desc = arr.map(([id,min],i) => `${i<3?medals[i]+" ":""}${i+1} — <@${id}> • ${min} minutes`).join("\n") || "No VC activity yet";
-
     return new EmbedBuilder()
         .setColor(darkBlue)
         .setAuthor({ name:guild.name, iconURL:guild.iconURL({ dynamic:true }) })
@@ -113,7 +105,7 @@ async function updateLB(guild,type){
 }
 
 // --------------------
-// TRACK CHAT MESSAGES
+// CHAT TRACKING
 // --------------------
 client.on("messageCreate", msg=>{
     if(msg.guild?.id!==YOUR_GUILD_ID || msg.author.bot) return;
@@ -131,10 +123,9 @@ client.on("voiceStateUpdate", async(oldState,newState)=>{
     // JOIN VC
     if(!oldState.channelId && newState.channelId){
         vcJoinTimestamps.set(userId,Date.now());
-
         const newChannel = newState.channel;
 
-        // join to create
+        // join-to-create
         if(newChannel.name.toLowerCase().includes("join to create") && publicVCId){
             const vc = await guild.channels.create({
                 name:`${newState.member.user.username}'s VC`,
@@ -165,7 +156,6 @@ client.on("voiceStateUpdate", async(oldState,newState)=>{
             vcJoinTimestamps.delete(userId);
         }
 
-        // delete personal VC
         if(tempVCs.has(userId)){
             const vcId = tempVCs.get(userId);
             const vc = guild.channels.cache.get(vcId);
@@ -188,11 +178,8 @@ client.on("messageCreate", async message=>{
     const guild = message.guild;
     const args = message.content.slice(PREFIX.length).trim().split(/ +/);
     const cmd = args.shift().toLowerCase();
-
     const channel = message.member.voice.channel;
-
-    // EMBED HELPER
-    const successEmbed = desc=>({ embeds:[embedMsg(guild,desc)] });
+    const successEmbed = desc=>({ embeds:[embedMsg(desc)] });
 
     // VM SETUP
     if(cmd==="vmsetup"){
@@ -200,8 +187,7 @@ client.on("messageCreate", async message=>{
             const hub = await guild.channels.create({ name:"Voice Master Hub", type:ChannelType.GuildCategory });
             const pub = await guild.channels.create({ name:"Public VCs", type:ChannelType.GuildCategory });
             const priv = await guild.channels.create({ name:"Private VCs", type:ChannelType.GuildCategory });
-            publicVCId = pub.id;
-            privateVCId = priv.id;
+            publicVCId = pub.id; privateVCId = priv.id;
 
             await guild.channels.create({ name:"Join to Create", type:ChannelType.GuildVoice, parent:hub.id });
             await guild.channels.create({ name:"Join Random", type:ChannelType.GuildVoice, parent:hub.id });
@@ -253,19 +239,17 @@ client.on("messageCreate", async message=>{
         switch(sub){
             case "lock":
                 await channel.permissionOverwrites.edit(channel.guild.roles.everyone,{ Connect:false });
-                if(privateVCId) await channel.setParent(privateVCId);
+                if(privateVCId && channel.parentId!==privateVCId) await channel.setParent(privateVCId);
                 return message.reply(successEmbed("Your VC has been locked"));
             case "unlock":
                 await channel.permissionOverwrites.edit(channel.guild.roles.everyone,{ Connect:true });
-                if(publicVCId) await channel.setParent(publicVCId);
                 return message.reply(successEmbed("Your VC has been unlocked"));
             case "hide":
                 await channel.permissionOverwrites.edit(channel.guild.roles.everyone,{ ViewChannel:false });
-                if(privateVCId) await channel.setParent(privateVCId);
+                if(privateVCId && channel.parentId!==privateVCId) await channel.setParent(privateVCId);
                 return message.reply(successEmbed("Your VC has been hidden"));
             case "unhide":
                 await channel.permissionOverwrites.edit(channel.guild.roles.everyone,{ ViewChannel:true });
-                if(publicVCId) await channel.setParent(publicVCId);
                 return message.reply(successEmbed("Your VC has been unhidden"));
             case "kick":
                 if(!target || !channel.members.has(target.id)) return message.reply(successEmbed("User not in your VC"));
