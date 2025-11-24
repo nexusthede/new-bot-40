@@ -44,19 +44,19 @@ client.once('ready', async () => {
 async function setupCategories() {
   const guild = client.guilds.cache.get(MY_GUILD_ID);
   if(!guild) return;
-  const categories = ['Voice Master VC', 'Public VC', 'Private VC'];
-  for(let name of categories){
-    let cat = guild.channels.cache.find(c=>c.name===name && c.type===4);
-    if(!cat) {
-      let created = await guild.channels.create({name,type:4});
-      if(name==='Voice Master VC') vmChannels.masterCategory=created.id;
-      if(name==='Public VC') vmChannels.publicCategory=created.id;
-      if(name==='Private VC') vmChannels.privateCategory=created.id;
-    } else {
-      if(name==='Voice Master VC') vmChannels.masterCategory=cat.id;
-      if(name==='Public VC') vmChannels.publicCategory=cat.id;
-      if(name==='Private VC') vmChannels.privateCategory=cat.id;
-    }
+
+  // Create categories if missing
+  if(!vmChannels.masterCategory){
+    let master = await guild.channels.create({name:'Voice Master VC', type:4});
+    vmChannels.masterCategory = master.id;
+  }
+  if(!vmChannels.publicCategory){
+    let pub = await guild.channels.create({name:'Public VC', type:4});
+    vmChannels.publicCategory = pub.id;
+  }
+  if(!vmChannels.privateCategory){
+    let priv = await guild.channels.create({name:'Private VC', type:4});
+    vmChannels.privateCategory = priv.id;
   }
 }
 
@@ -347,15 +347,73 @@ function showStats(message,args){
   message.channel.send({embeds:[embed]});
 }
 
+// ---------------- VOICE TIMER ----------------
+function startVoiceTimer(userId, channelId){
+  if(activeVoiceTimers[userId]) return;
+  activeVoiceTimers[userId] = Date.now();
+}
+
+function stopVoiceTimer(userId, channelId){
+  if(!activeVoiceTimers[userId]) return;
+  let mins = Math.floor((Date.now() - activeVoiceTimers[userId]) / 60000);
+  voiceStats[userId] = (voiceStats[userId] || 0) + mins;
+  activeVoiceTimers[userId] = null;
+}
+
+// ---------------- AUTO MOVE JOINED VCS ----------------
+function autoMoveVC(member, channel){
+  if(!channel) return;
+  if([vmChannels.publicCategory, vmChannels.masterCategory, vmChannels.privateCategory].includes(channel.parentId)) return;
+  if(vmChannels.publicCategory) channel.setParent(vmChannels.publicCategory).catch(()=>{});
+}
+
+// ---------------- VOICE TIERS ----------------
+function handleAddVCTier(message, args){
+  let role = message.mentions.roles.first();
+  let minutes = parseInt(args[1]);
+  if(!role || !minutes) return message.channel.send({embeds:[failedEmbed('Provide role and minutes')]});
+  voiceTiers.push({roleId: role.id, minutes: minutes, level: `@Tier ${voiceTiers.length+1}`});
+  message.channel.send({embeds:[successEmbed(`Voice tier **${role.name}** added for ${minutes} mins`)]});
+}
+
+function handleRemoveVCTier(message, args){
+  let role = message.mentions.roles.first();
+  if(!role) return message.channel.send({embeds:[failedEmbed('Mention a role')]});
+  voiceTiers = voiceTiers.filter(t => t.roleId !== role.id);
+  message.channel.send({embeds:[successEmbed(`Voice tier **${role.name}** removed`)]});
+}
+
+// ---------------- STATS COMMAND ----------------
+function showStats(message, args){
+  let user = message.mentions.members.first() || message.member;
+  let messagesCount = chatStats[user.id] || 0;
+  let voiceMinutes = voiceStats[user.id] || 0;
+  let tier = '@Tier 0';
+  for(let t of voiceTiers){
+    if(voiceMinutes >= t.minutes) tier = t.level;
+  }
+  const embed = new EmbedBuilder()
+    .setTitle(`Stats for **${user.user.tag}**`)
+    .addFields(
+      {name: 'Messages', value: `${messagesCount}`, inline: true},
+      {name: 'Voice Minutes', value: `${voiceMinutes}`, inline: true},
+      {name: 'Tier', value: `${tier}`, inline: true}
+    );
+  message.channel.send({embeds:[embed]});
+}
+
 // ---------------- LEADERBOARDS ----------------
 async function autoUpdateLeaderboards(){
-  setInterval(()=>{updateChatLB(); updateVoiceLB();},5*60*1000);
+  setInterval(() => {
+    updateChatLB();
+    updateVoiceLB();
+  }, 5 * 60 * 1000);
 }
 
 function updateChatLB(){
   const guild = client.guilds.cache.get(MY_GUILD_ID);
   if(!guild) return;
-  const top = Object.entries(chatStats).sort((a,b)=>b[1]-a[1]).slice(0,10);
+  const top = Object.entries(chatStats).sort((a,b) => b[1] - a[1]).slice(0,10);
   let desc = '';
   for(let i=0;i<top.length;i++){
     let member = guild.members.cache.get(top[i][0]);
@@ -369,7 +427,7 @@ function updateChatLB(){
 function updateVoiceLB(){
   const guild = client.guilds.cache.get(MY_GUILD_ID);
   if(!guild) return;
-  const top = Object.entries(voiceStats).sort((a,b)=>b[1]-a[1]).slice(0,10);
+  const top = Object.entries(voiceStats).sort((a,b) => b[1] - a[1]).slice(0,10);
   let desc = '';
   for(let i=0;i<top.length;i++){
     let member = guild.members.cache.get(top[i][0]);
@@ -391,10 +449,12 @@ function showVoiceLeaderboard(message){
 }
 
 // ---------------- GIVEAWAYS SYSTEM ----------------
-function handleGiveaway(message,args){
-  // Basic example
+function handleGiveaway(message, args){
   let prize = args.join(' ');
   if(!prize) return message.channel.send({embeds:[failedEmbed('Provide a prize')]});
-  const embed = new EmbedBuilder().setTitle('🎉 Giveaway!').setDescription(`Prize: **${prize}**`).setFooter({text:'React with 🎉 to enter!'});
-  message.channel.send({embeds:[embed]}).then(msg=>msg.react('🎉'));
+  const embed = new EmbedBuilder()
+    .setTitle('🎉 Giveaway!')
+    .setDescription(`Prize: **${prize}**`)
+    .setFooter({text:'React with 🎉 to enter!'});
+  message.channel.send({embeds:[embed]}).then(msg => msg.react('🎉'));
 }
