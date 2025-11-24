@@ -1,6 +1,11 @@
-const http = require("http");
+const express = require("express");
+const app = express();
 
-http.createServer((req, res) => {
-  res.writeHead(200, {"Content-Type": "text/plain"});
-  res.end("Bot is running!");
-}).listen(process.env.PORT || 3000);
+app.get("/", (req, res) => {
+  res.send("Bot is alive!");
+});
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`Keep-alive server running on port ${PORT}`);
+});
