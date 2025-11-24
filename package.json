@@ -1,7 +1,6 @@
 {
   "name": "voice-master-bot",
   "version": "1.0.0",
-  "description": "Discord bot with Voice Master and Leaderboard system",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
