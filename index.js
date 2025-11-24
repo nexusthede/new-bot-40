@@ -1,6 +1,6 @@
-// index.js
+require("./keep_alive"); // Keep-alive server
+
 const { Client, GatewayIntentBits, EmbedBuilder, PermissionsBitField, ChannelType } = require("discord.js");
-const express = require("express");
 
 const client = new Client({
   intents: [
@@ -11,102 +11,85 @@ const client = new Client({
   ],
 });
 
-// === CONFIG ===
-const YOUR_GUILD_ID = "1441338778785419407";
+// CONFIG
 const PREFIX = ",";
-let vclbChannelId = null;
-let chatlbChannelId = null;
+const YOUR_GUILD_ID = "1441338778785419407";
 
-// Leaderboards
+// TRACKING
 const vcTime = new Map();
 const chatMsgs = new Map();
 const vcJoinTimestamps = new Map();
-
-// VC Ownership
 const vcOwners = new Map();
+const tempVCs = new Map();
 
-// Join-to-Create tracking
-const tempVCs = new Map(); // userId => channelId
+let lbMessageId = null;
+let vclbChannelId = null;
+let chatlbChannelId = null;
 
-// === EXPRESS SERVER (KEEP-ALIVE) ===
-const app = express();
-app.get("/", (req, res) => res.send("Bot is alive!"));
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+let publicVCId = null;
+let privateVCId = null;
 
-// === HELPER FUNCTIONS ===
-function formatVoiceLB() {
-  const arr = [...vcTime.entries()].sort((a, b) => b[1] - a[1]).slice(0, 10);
-  let desc = "";
+// UTILITY FUNCTIONS
+function formatLeaderboards() {
+  const chatArr = [...chatMsgs.entries()].sort((a, b) => b[1] - a[1]).slice(0, 10);
+  const vcArr = [...vcTime.entries()].sort((a, b) => b[1] - a[1]).slice(0, 10);
+
   const medals = ["🥇", "🥈", "🥉"];
-  arr.forEach(([userId, mins], i) => {
-    const medal = i < 3 ? medals[i] + " " : "";
-    desc += `${medal}${i + 1} — ${client.users.cache.get(userId)?.username || "Unknown"} • ${mins} minutes\n`;
-  });
+  let chatDesc = chatArr.map(([id, msgs], i) => `${i < 3 ? medals[i] + " " : ""}${i+1} — <@${id}> • ${msgs} messages`).join("\n") || "No messages yet";
+  let vcDesc = vcArr.map(([id, mins], i) => `${i < 3 ? medals[i] + " " : ""}${i+1} — <@${id}> • ${mins} minutes`).join("\n") || "No VC activity yet";
+
   return new EmbedBuilder()
-    .setTitle("Voice Leaderboard")
-    .setDescription(desc || "No VC data yet")
     .setColor("#00008B")
+    .setAuthor({ name: "Server Leaderboards", iconURL: client.user.displayAvatarURL() })
+    .setDescription(`**Chat Leaderboard**\n${chatDesc}\n\n**Voice Leaderboard**\n${vcDesc}`)
     .setFooter({ text: "Updates every 5 minutes" });
 }
 
-function formatChatLB() {
-  const arr = [...chatMsgs.entries()].sort((a, b) => b[1] - a[1]).slice(0, 10);
-  let desc = "";
-  const medals = ["🥇", "🥈", "🥉"];
-  arr.forEach(([userId, msgs], i) => {
-    const medal = i < 3 ? medals[i] + " " : "";
-    desc += `${medal}${i + 1} — ${client.users.cache.get(userId)?.username || "Unknown"} • ${msgs} messages\n`;
-  });
-  return new EmbedBuilder()
-    .setTitle("Chat Leaderboard")
-    .setDescription(desc || "No chat data yet")
-    .setColor("#00008B")
-    .setFooter({ text: "Updates every 5 minutes" });
-}
-
-async function updateVoiceLeaderboard() {
-  if (!vclbChannelId) return;
-  const channel = await client.channels.fetch(vclbChannelId).catch(() => null);
+async function updateLeaderboards(channel) {
   if (!channel) return;
-  channel.send({ embeds: [formatVoiceLB()] }).catch(() => null);
+  try {
+    if (lbMessageId) {
+      const msg = await channel.messages.fetch(lbMessageId).catch(() => null);
+      if (msg) return msg.edit({ embeds: [formatLeaderboards()] });
+    }
+    const newMsg = await channel.send({ embeds: [formatLeaderboards()] });
+    lbMessageId = newMsg.id;
+  } catch (err) { console.log("Failed to update LB:", err.message); }
 }
 
-async function updateChatLeaderboard() {
-  if (!chatlbChannelId) return;
-  const channel = await client.channels.fetch(chatlbChannelId).catch(() => null);
-  if (!channel) return;
-  channel.send({ embeds: [formatChatLB()] }).catch(() => null);
-}
+// AUTO UPDATE EVERY 5 MINUTES
+setInterval(() => {
+  if (chatlbChannelId) updateLeaderboards(client.channels.cache.get(chatlbChannelId));
+  if (vclbChannelId) updateLeaderboards(client.channels.cache.get(vclbChannelId));
+}, 300000);
 
-// === AUTO VC TIME TRACKING & TEMP VC MANAGEMENT ===
+// VOICE STATE UPDATE
 client.on("voiceStateUpdate", async (oldState, newState) => {
   if (newState.guild.id !== YOUR_GUILD_ID) return;
   const userId = newState.id;
 
-  // Join VC
+  // JOIN VC
   if (!oldState.channelId && newState.channelId) {
     vcJoinTimestamps.set(userId, Date.now());
 
-    // JOIN TO CREATE
     const newChannel = newState.channel;
-    if (newChannel.name.toLowerCase().includes("join to create")) {
+    // Join-to-Create
+    if (newChannel.name.toLowerCase().includes("join to create") && publicVCId) {
       const personalVC = await newState.guild.channels.create({
         name: `${newState.member.user.username}'s VC`,
         type: ChannelType.GuildVoice,
-        parent: newChannel.parentId,
+        parent: publicVCId,
         permissionOverwrites: [{ id: newState.guild.roles.everyone.id, allow: [PermissionsBitField.Flags.Connect] }],
       });
       tempVCs.set(userId, personalVC.id);
-      await newState.member.voice.setChannel(personalVC);
       vcOwners.set(personalVC.id, userId);
+      await newState.member.voice.setChannel(personalVC);
     }
 
-    // JOIN RANDOM
-    if (newChannel.name.toLowerCase().includes("join random")) {
-      const hub = newChannel.parent;
-      if (!hub) return;
-      const availableVCs = hub.children.filter((c) => c.type === ChannelType.GuildVoice && c.members.size < (c.userLimit || 99));
+    // Join-Random
+    if (newChannel.name.toLowerCase().includes("join random") && publicVCId) {
+      const availableVCs = newState.guild.channels.cache
+        .filter(c => c.parentId === publicVCId && c.type === ChannelType.GuildVoice && c.members.size < (c.userLimit || 99));
       if (availableVCs.size > 0) {
         const randomVC = availableVCs.random();
         await newState.member.voice.setChannel(randomVC);
@@ -114,7 +97,7 @@ client.on("voiceStateUpdate", async (oldState, newState) => {
     }
   }
 
-  // Leave VC
+  // LEAVE VC
   if (oldState.channelId && !newState.channelId) {
     const joinTime = vcJoinTimestamps.get(userId);
     if (joinTime) {
@@ -123,12 +106,11 @@ client.on("voiceStateUpdate", async (oldState, newState) => {
       vcJoinTimestamps.delete(userId);
     }
 
-    // Delete personal VC if temp and empty
+    // DELETE TEMP VC IF EMPTY
     if (tempVCs.has(userId)) {
       const vcId = tempVCs.get(userId);
       const vcChannel = oldState.guild.channels.cache.get(vcId);
       if (vcChannel && vcChannel.members.size === 0) {
-        // wait 5 seconds before deletion
         setTimeout(async () => {
           const ch = oldState.guild.channels.cache.get(vcId);
           if (ch && ch.members.size === 0) {
@@ -142,144 +124,169 @@ client.on("voiceStateUpdate", async (oldState, newState) => {
   }
 });
 
-// === VC CHAT TRACKING ===
+// MESSAGE TRACKING
 client.on("messageCreate", (message) => {
   if (message.guild.id !== YOUR_GUILD_ID) return;
-  if (!message.member.voice.channel) return;
   const userId = message.author.id;
   chatMsgs.set(userId, (chatMsgs.get(userId) || 0) + 1);
 });
 
-// === COMMAND HANDLER ===
+// COMMAND HANDLER
 client.on("messageCreate", async (message) => {
   if (message.guild.id !== YOUR_GUILD_ID) return;
   if (!message.content.startsWith(PREFIX)) return;
+
   const args = message.content.slice(PREFIX.length).trim().split(/ +/);
   const cmd = args.shift().toLowerCase();
-  const userVC = message.member.voice.channel;
 
-  // === VOICE MASTER COMMANDS ===
-  if (cmd === "vc") {
-    if (!userVC)
-      return message.reply({ embeds: [new EmbedBuilder().setColor("#00008B").setDescription("Failed: You are not in a VC")] });
+  const embedSuccess = (desc) => ({ embeds: [new EmbedBuilder().setColor("#00008B").setDescription(desc)] });
 
-    const member = message.mentions.members.first();
-    switch (args[0]) {
-      case "lock":
-        await userVC.permissionOverwrites.edit(message.guild.roles.everyone, { Connect: false });
-        return message.reply({ embeds: [new EmbedBuilder().setColor("#00008B").setDescription("Your VC is now locked")] });
-      case "unlock":
-        await userVC.permissionOverwrites.edit(message.guild.roles.everyone, { Connect: true });
-        return message.reply({ embeds: [new EmbedBuilder().setColor("#00008B").setDescription("Your VC is now unlocked")] });
-      case "kick":
-        if (!member || member.voice.channelId !== userVC.id)
-          return message.reply({ embeds: [new EmbedBuilder().setColor("#00008B").setDescription("Failed: User not in your VC")] });
-        member.voice.disconnect();
-        return message.reply({ embeds: [new EmbedBuilder().setColor("#00008B").setDescription(`${member.user.username} was kicked from your VC`)] });
-      case "ban":
-        if (!member || member.voice.channelId !== userVC.id)
-          return message.reply({ embeds: [new EmbedBuilder().setColor("#00008B").setDescription("Failed: User not in your VC")] });
-        userVC.permissionOverwrites.edit(member.id, { Connect: false });
-        return message.reply({ embeds: [new EmbedBuilder().setColor("#00008B").setDescription(`${member.user.username} was banned from your VC`)] });
-      case "permit":
-        if (!member) return message.reply({ embeds: [new EmbedBuilder().setColor("#00008B").setDescription("Failed: Mention a member")] });
-        userVC.permissionOverwrites.edit(member.id, { Connect: true });
-        return message.reply({ embeds: [new EmbedBuilder().setColor("#00008B").setDescription(`${member.user.username} can now join your VC`)] });
-      case "limit":
-        const limit = parseInt(args[1]);
-        if (isNaN(limit) || limit < 1) return message.reply({ embeds: [new EmbedBuilder().setColor("#00008B").setDescription("Failed: Invalid number")] });
-        userVC.setUserLimit(limit);
-        return message.reply({ embeds: [new EmbedBuilder().setColor("#00008B").setDescription(`User limit set to ${limit}`)] });
-      case "info":
-        return message.reply({ embeds: [new EmbedBuilder().setColor("#00008B").setDescription(`Channel: ${userVC.name}\nMembers: ${userVC.members.size}\nLimit: ${userVC.userLimit || "None"}`)] });
-      case "rename":
-        const name = args.slice(1).join(" ");
-        if (!name) return message.reply({ embeds: [new EmbedBuilder().setColor("#00008B").setDescription("Failed: Provide a new name")] });
-        await userVC.setName(name);
-        return message.reply({ embeds: [new EmbedBuilder().setColor("#00008B").setDescription(`VC renamed to ${name}`)] });
-      case "transfer":
-        if (!member) return message.reply({ embeds: [new EmbedBuilder().setColor("#00008B").setDescription("Failed: Mention a member")] });
-        vcOwners.set(userVC.id, member.id);
-        return message.reply({ embeds: [new EmbedBuilder().setColor("#00008B").setDescription(`${member.user.username} is now the owner of your VC`)] });
-      case "unmute":
-        await message.member.voice.setMute(false);
-        return message.reply({ embeds: [new EmbedBuilder().setColor("#00008B").setDescription("You are now unmuted")] });
-      case "hide":
-        await userVC.permissionOverwrites.edit(message.guild.roles.everyone, { ViewChannel: false });
-        return message.reply({ embeds: [new EmbedBuilder().setColor("#00008B").setDescription("VC is now hidden")] });
-      case "unhide":
-        await userVC.permissionOverwrites.edit(message.guild.roles.everyone, { ViewChannel: true });
-        return message.reply({ embeds: [new EmbedBuilder().setColor("#00008B").setDescription("VC is now visible")] });
-    }
-  }
-
-  // === VM SETUP ===
+  // VM SETUP
   if (cmd === "vmsetup") {
+    const guild = message.guild;
     try {
-      const guild = message.guild;
       const hubCategory = await guild.channels.create({ name: "Voice Master Hub", type: ChannelType.GuildCategory });
       const publicCategory = await guild.channels.create({ name: "Public VCs", type: ChannelType.GuildCategory });
       const privateCategory = await guild.channels.create({ name: "Private VCs", type: ChannelType.GuildCategory });
 
+      publicVCId = publicCategory.id;
+      privateVCId = privateCategory.id;
+
       await guild.channels.create({ name: "Join to Create", type: ChannelType.GuildVoice, parent: hubCategory.id });
       await guild.channels.create({ name: "Join Random VC", type: ChannelType.GuildVoice, parent: hubCategory.id });
 
-      return message.reply({ embeds: [new EmbedBuilder().setColor("#00008B").setDescription("Voice Master system successfully setup!")] });
-    } catch (err) {
-      return message.reply({ embeds: [new EmbedBuilder().setColor("#00008B").setDescription(`Failed to setup Voice Master system: ${err.message}`)] });
-    }
+      return message.reply(embedSuccess("Voice Master system successfully setup!"));
+    } catch (err) { return message.reply(embedSuccess(`Failed to setup Voice Master: ${err.message}`)); }
   }
 
-  // === VM RESET ===
+  // VM RESET
   if (cmd === "vmreset") {
+    const guild = message.guild;
     try {
-      const guild = message.guild;
-      const categories = guild.channels.cache.filter(
-        (c) => c.type === ChannelType.GuildCategory && ["Voice Master Hub", "Public VCs", "Private VCs"].includes(c.name)
-      );
-      for (const [, cat] of categories) await cat.delete().catch(() => null);
-
-      vcTime.clear();
-      chatMsgs.clear();
-      vcOwners.clear();
-      vcJoinTimestamps.clear();
-      tempVCs.clear();
-
-      return message.reply({ embeds: [new EmbedBuilder().setColor("#00008B").setDescription("Voice Master system has been reset!")] });
-    } catch (err) {
-      return message.reply({ embeds: [new EmbedBuilder().setColor("#00008B").setDescription(`Failed to reset Voice Master system: ${err.message}`)] });
-    }
+      const categories = guild.channels.cache.filter(c => c.type === ChannelType.GuildCategory && ["Voice Master Hub", "Public VCs", "Private VCs"].includes(c.name));
+      for (const [, cat] of categories) {
+        const children = cat.children;
+        for (const [, ch] of children) await ch.delete().catch(() => null);
+        await cat.delete().catch(() => null);
+      }
+      vcTime.clear(); chatMsgs.clear(); vcOwners.clear(); vcJoinTimestamps.clear(); tempVCs.clear();
+      lbMessageId = null; publicVCId = null; privateVCId = null;
+      return message.reply(embedSuccess("Voice Master system has been reset!"));
+    } catch (err) { return message.reply(embedSuccess(`Failed to reset VM: ${err.message}`)); }
   }
 
-  // === SET LB CHANNELS ===
+  // SET LB CHANNELS
   if (cmd === "set") {
     const channel = message.mentions.channels.first();
-    if (!channel) return message.reply({ embeds: [new EmbedBuilder().setColor("#00008B").setDescription("Failed: Mention a valid channel")] });
-    if (args[0] === "vclb") {
-      vclbChannelId = channel.id;
-      return message.reply({ embeds: [new EmbedBuilder().setColor("#00008B").setDescription(`Voice LB channel set to ${channel}`)] });
-    }
-    if (args[0] === "chatlb") {
-      chatlbChannelId = channel.id;
-      return message.reply({ embeds: [new EmbedBuilder().setColor("#00008B").setDescription(`Chat LB channel set to ${channel}`)] });
-    }
+    if (!channel) return message.reply(embedSuccess("Failed: Mention a valid channel"));
+    if (args[0] === "vclb") { vclbChannelId = channel.id; return message.reply(embedSuccess(`Voice LB channel set to ${channel}`)); }
+    if (args[0] === "chatlb") { chatlbChannelId = channel.id; return message.reply(embedSuccess(`Chat LB channel set to ${channel}`)); }
   }
 
-  // === UPLOAD & REFRESH LBS ===
+  // UPLOAD / REFRESH LBs
   if ((cmd === "upload" || cmd === "refresh") && args[0] === "lb") {
-    if (!vclbChannelId && !chatlbChannelId)
-      return message.reply({ embeds: [new EmbedBuilder().setColor("#00008B").setDescription("Failed: Set at least one leaderboard channel first")] });
-    if (vclbChannelId) updateVoiceLeaderboard();
-    if (chatlbChannelId) updateChatLeaderboard();
-    return message.reply({ embeds: [new EmbedBuilder().setColor("#00008B").setDescription(`${cmd === "upload" ? "Leaderboards uploaded" : "Leaderboards refreshed"} successfully`)] });
+    if (!chatlbChannelId && !vclbChannelId) return message.reply(embedSuccess("Failed: Set at least one LB channel first"));
+    if (chatlbChannelId) updateLeaderboards(client.channels.cache.get(chatlbChannelId));
+    if (vclbChannelId) updateLeaderboards(client.channels.cache.get(vclbChannelId));
+    return message.reply(embedSuccess(`${cmd === "upload" ? "Leaderboards uploaded" : "Leaderboards refreshed"} successfully`));
+  }
+
+  // VC COMMANDS HANDLER
+  if (cmd === "vc") {
+    const sub = args[0]?.toLowerCase();
+    const member = message.member;
+    const channel = member.voice.channel;
+    if (!channel) return message.reply(embedSuccess("You must be in a voice channel to use VC commands."));
+
+    // LOCK
+    if (sub === "lock") {
+      await channel.permissionOverwrites.edit(channel.guild.roles.everyone, { Connect: false });
+      if (privateVCId) await channel.setParent(privateVCId);
+      return message.reply(embedSuccess("Channel locked and moved to Private VC category."));
+    }
+
+    // UNLOCK
+    if (sub === "unlock") {
+      await channel.permissionOverwrites.edit(channel.guild.roles.everyone, { Connect: true });
+      if (publicVCId) await channel.setParent(publicVCId);
+      return message.reply(embedSuccess("Channel unlocked and moved to Public VC category."));
+    }
+
+    // KICK
+    if (sub === "kick") {
+      const target = message.mentions.members.first();
+      if (!target || !channel.members.has(target.id)) return message.reply(embedSuccess("Target not found in your VC."));
+      await target.voice.disconnect().catch(() => null);
+      return message.reply(embedSuccess(`Kicked ${target.user.tag} from your VC.`));
+    }
+
+    // BAN (deny connect)
+    if (sub === "ban") {
+      const target = message.mentions.members.first();
+      if (!target) return message.reply(embedSuccess("Mention a user to ban."));
+      await channel.permissionOverwrites.edit(target.id, { Connect: false });
+      if (channel.members.has(target.id)) await target.voice.disconnect().catch(() => null);
+      return message.reply(embedSuccess(`Banned ${target.user.tag} from your VC.`));
+    }
+
+    // PERMIT
+    if (sub === "permit") {
+      const target = message.mentions.members.first();
+      if (!target) return message.reply(embedSuccess("Mention a user to permit."));
+      await channel.permissionOverwrites.edit(target.id, { Connect: true });
+      return message.reply(embedSuccess(`Permitted ${target.user.tag} to join your VC.`));
+    }
+
+    // LIMIT
+    if (sub === "limit") {
+      const limit = parseInt(args[1]);
+      if (isNaN(limit)) return message.reply(embedSuccess("Specify a valid number for user limit."));
+      await channel.setUserLimit(limit);
+      return message.reply(embedSuccess(`Channel user limit set to ${limit}.`));
+    }
+
+    // INFO
+    if (sub === "info") {
+      const members = channel.members.map(m => m.user.tag).join(", ") || "No members";
+      return message.reply(embedSuccess(`Channel: ${channel.name}\nMembers: ${members}`));
+    }
+
+    // RENAME
+    if (sub === "rename") {
+      const name = args.slice(1).join(" ");
+      if (!name) return message.reply(embedSuccess("Specify a new name."));
+      await channel.setName(name);
+      return message.reply(embedSuccess(`Channel renamed to ${name}.`));
+    }
+
+    // TRANSFER
+    if (sub === "transfer") {
+      const target = message.mentions.members.first();
+      if (!target) return message.reply(embedSuccess("Mention a member to transfer ownership."));
+      vcOwners.set(channel.id, target.id);
+      return message.reply(embedSuccess(`Transferred VC ownership to ${target.user.tag}.`));
+    }
+
+    // UNMUTE
+    if (sub === "unmute") {
+      await member.voice.setMute(false);
+      return message.reply(embedSuccess("You are now unmuted."));
+    }
+
+    // HIDE
+    if (sub === "hide") {
+      await channel.permissionOverwrites.edit(channel.guild.roles.everyone, { ViewChannel: false });
+      if (privateVCId) await channel.setParent(privateVCId);
+      return message.reply(embedSuccess("Channel hidden and moved to Private VC category."));
+    }
+
+    // UNHIDE
+    if (sub === "unhide") {
+      await channel.permissionOverwrites.edit(channel.guild.roles.everyone, { ViewChannel: true });
+      if (publicVCId) await channel.setParent(publicVCId);
+      return message.reply(embedSuccess("Channel unhidden and moved to Public VC category."));
+    }
   }
 });
 
-// === AUTO UPDATE INTERVAL ===
-setInterval(() => {
-  if (vclbChannelId) updateVoiceLeaderboard();
-  if (chatlbChannelId) updateChatLeaderboard();
-}, 300000);
-
-// === LOGIN ===
 client.login(process.env.BOT_TOKEN);
