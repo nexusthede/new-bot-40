@@ -10,7 +10,7 @@ app.listen(PORT, () => console.log(`Keep-alive running on port ${PORT}`));
 // --------------------
 // DISCORD SETUP
 // --------------------
-const { Client, GatewayIntentBits, EmbedBuilder, PermissionsBitField, ChannelType } = require("discord.js");
+const { Client, GatewayIntentBits, EmbedBuilder, ChannelType } = require("discord.js");
 const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
@@ -238,19 +238,41 @@ client.on("messageCreate", async message=>{
 
         switch(sub){
             case "lock":
-                await channel.permissionOverwrites.edit(channel.guild.roles.everyone,{ Connect:false });
-                if(privateVCId && channel.parentId!==privateVCId) await channel.setParent(privateVCId);
-                return message.reply(successEmbed("Your VC has been locked"));
+                {
+                    const everyoneRole = channel.guild.roles.everyone;
+                    const ownerId = vcOwners.get(channel.id) || message.member.id;
+
+                    if(privateVCId && channel.parentId !== privateVCId) await channel.setParent(privateVCId).catch(()=>null);
+                    await new Promise(res=>setTimeout(res,250));
+
+                    await channel.permissionOverwrites.edit(everyoneRole, { Connect:false }).catch(()=>null);
+                    await channel.permissionOverwrites.edit(ownerId, { Connect:true }).catch(()=>null);
+                    return message.reply({ embeds:[embedMsg("Your VC has been locked")] });
+                }
             case "unlock":
-                await channel.permissionOverwrites.edit(channel.guild.roles.everyone,{ Connect:true });
-                return message.reply(successEmbed("Your VC has been unlocked"));
+                {
+                    const everyoneRole = channel.guild.roles.everyone;
+                    await channel.permissionOverwrites.edit(everyoneRole, { Connect:true }).catch(()=>null);
+                    return message.reply({ embeds:[embedMsg("Your VC has been unlocked")] });
+                }
             case "hide":
-                await channel.permissionOverwrites.edit(channel.guild.roles.everyone,{ ViewChannel:false });
-                if(privateVCId && channel.parentId!==privateVCId) await channel.setParent(privateVCId);
-                return message.reply(successEmbed("Your VC has been hidden"));
+                {
+                    const everyoneRole = channel.guild.roles.everyone;
+                    const ownerId = vcOwners.get(channel.id) || message.member.id;
+
+                    if(privateVCId && channel.parentId !== privateVCId) await channel.setParent(privateVCId).catch(()=>null);
+                    await new Promise(res=>setTimeout(res,250));
+
+                    await channel.permissionOverwrites.edit(everyoneRole, { ViewChannel:false }).catch(()=>null);
+                    await channel.permissionOverwrites.edit(ownerId, { ViewChannel:true }).catch(()=>null);
+                    return message.reply({ embeds:[embedMsg("Your VC has been hidden")] });
+                }
             case "unhide":
-                await channel.permissionOverwrites.edit(channel.guild.roles.everyone,{ ViewChannel:true });
-                return message.reply(successEmbed("Your VC has been unhidden"));
+                {
+                    const everyoneRole = channel.guild.roles.everyone;
+                    await channel.permissionOverwrites.edit(everyoneRole, { ViewChannel:true }).catch(()=>null);
+                    return message.reply({ embeds:[embedMsg("Your VC has been unhidden")] });
+                }
             case "kick":
                 if(!target || !channel.members.has(target.id)) return message.reply(successEmbed("User not in your VC"));
                 await target.voice.disconnect().catch(()=>null);
@@ -269,20 +291,18 @@ client.on("messageCreate", async message=>{
                 await channel.setUserLimit(numArg);
                 return message.reply(successEmbed(`User limit set to ${numArg}`));
             case "info":
-                const members = channel.members.map(m=>m.user.tag).join(", ")||"No members";
-                return message.reply(successEmbed(`Channel: ${channel.name}\nMembers: ${members}`));
+                return message.reply(successEmbed(`VC Name: ${channel.name}\nCategory: ${channel.parent?.name||"None"}\nMembers: ${channel.members.size}\nLimit: ${channel.userLimit||"None"}`));
             case "rename":
-                const name = args.slice(1).join(" ");
-                if(!name) return message.reply(successEmbed("Specify a new name"));
-                await channel.setName(name);
-                return message.reply(successEmbed(`Channel renamed to ${name}`));
+                if(!args[1]) return message.reply(successEmbed("Provide a new name"));
+                await channel.setName(args.slice(1).join(" "));
+                return message.reply(successEmbed(`VC renamed to ${args.slice(1).join(" ")}`));
             case "transfer":
-                if(!target) return message.reply(successEmbed("Mention a user"));
+                if(!target) return message.reply(successEmbed("Mention a user to transfer ownership"));
                 vcOwners.set(channel.id,target.id);
-                return message.reply(successEmbed(`Ownership transferred to ${target.user.tag}`));
+                return message.reply(successEmbed(`Transferred VC ownership to ${target.user.tag}`));
             case "unmute":
-                await message.member.voice.setMute(false);
-                return message.reply(successEmbed("You are now unmuted"));
+                await message.member.voice.setMute(false).catch(()=>null);
+                return message.reply(successEmbed("You have been unmuted"));
         }
     }
 });
