@@ -1,12 +1,16 @@
 {
-  "name": "all-in-one-discord-bot",
+  "name": "voice-master-bot",
   "version": "1.0.0",
-  "description": "All-in-one Discord bot with moderation, voice master, leaderboards, giveaways, tiers, etc.",
+  "description": "Discord bot with Voice Master and Leaderboard system",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
   },
   "dependencies": {
-    "discord.js": "^14.15.1"
+    "discord.js": "^14.16.0",
+    "express": "^4.18.2"
+  },
+  "engines": {
+    "node": "18.x"
   }
 }
