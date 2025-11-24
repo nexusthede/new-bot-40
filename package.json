@@ -1,0 +1,12 @@
+{
+  "name": "all-in-one-discord-bot",
+  "version": "1.0.0",
+  "description": "All-in-one Discord bot with moderation, voice master, leaderboards, giveaways, tiers, etc.",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "discord.js": "^14.15.1"
+  }
+}
