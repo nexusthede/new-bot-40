@@ -1,0 +1,30 @@
+{
+  "chatMsgs": {},
+  "vcTime": {},
+  "vcTiers": [
+    {
+      "name": "Tier I",
+      "roleId": "ROLE_ID_TIER1",
+      "minTime": 10,
+      "maxTier": 1
+    },
+    {
+      "name": "Tier II",
+      "roleId": "ROLE_ID_TIER2",
+      "minTime": 30,
+      "maxTier": 1
+    },
+    {
+      "name": "Tier III",
+      "roleId": "ROLE_ID_TIER3",
+      "minTime": 60,
+      "maxTier": 1
+    }
+  ],
+  "leaderboards": {
+    "chatLBChannelId": null,
+    "vcLBChannelId": null,
+    "chatLBMessageId": null,
+    "vcLBMessageId": null
+  }
+}
