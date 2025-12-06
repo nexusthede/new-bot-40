@@ -2,7 +2,6 @@
 // KEEP ALIVE
 // --------------------
 const express = require("express");
-const fs = require("fs");
 const app = express();
 app.get("/", (req, res) => res.send("Bot is alive!"));
 const PORT = process.env.PORT || 3000;
@@ -26,53 +25,20 @@ const YOUR_GUILD_ID = "1441338778785419407";
 const darkBlue = "#00008B";
 
 // --------------------
-// DATA HANDLING
+// TRACKING
 // --------------------
-let data = {
-    chatMsgs: {},
-    vcTime: {},
-    vcTiers: [],
-    leaderboards: {
-        chatLBChannelId: null,
-        vcLBChannelId: null,
-        chatLBMessageId: null,
-        vcLBMessageId: null
-    }
-};
+const chatMsgs = new Map();
+const vcTime = new Map();
+const vcJoinTimestamps = new Map();
+const tempVCs = new Map();
+const vcOwners = new Map();
 
-// Load data.json if exists
-if(fs.existsSync("./data.json")){
-    const raw = fs.readFileSync("./data.json");
-    data = JSON.parse(raw);
-}
-
-const chatMsgs = new Map(Object.entries(data.chatMsgs));
-const vcTime = new Map(Object.entries(data.vcTime));
-let vcTiers = data.vcTiers;
-let chatLBChannelId = data.leaderboards.chatLBChannelId;
-let vcLBChannelId = data.leaderboards.vcLBChannelId;
-let chatLBMessageId = data.leaderboards.chatLBMessageId;
-let vcLBMessageId = data.leaderboards.vcLBMessageId;
-
-let vcJoinTimestamps = new Map();
-let tempVCs = new Map();
-let vcOwners = new Map();
+let chatLBChannelId = null;
+let vcLBChannelId = null;
+let chatLBMessageId = null;
+let vcLBMessageId = null;
 let publicVCId = null;
 let privateVCId = null;
-
-// --------------------
-// SAVE DATA FUNCTION
-// --------------------
-function saveData(){
-    data.chatMsgs = Object.fromEntries(chatMsgs);
-    data.vcTime = Object.fromEntries(vcTime);
-    data.vcTiers = vcTiers;
-    data.leaderboards.chatLBChannelId = chatLBChannelId;
-    data.leaderboards.vcLBChannelId = vcLBChannelId;
-    data.leaderboards.chatLBMessageId = chatLBMessageId;
-    data.leaderboards.vcLBMessageId = vcLBMessageId;
-    fs.writeFileSync("./data.json", JSON.stringify(data, null, 4));
-}
 
 // --------------------
 // EMBED HELPERS
@@ -87,7 +53,8 @@ function buildChatLB(guild) {
         .filter(([id]) => guild.members.cache.has(id) && !guild.members.cache.get(id).user.bot)
         .sort((a,b) => b[1]-a[1])
         .slice(0,10);
-    const desc = arr.map(([id,count],i) => `${i+1} — <@${id}> • ${count} messages`).join("\n") || "No messages yet";
+    const medals = ["🥇","🥈","🥉"];
+    const desc = arr.map(([id,count],i) => `${i<3?medals[i]+" ":""}${i+1} — <@${id}> • ${count} messages`).join("\n") || "No messages yet";
     return new EmbedBuilder()
         .setColor(darkBlue)
         .setAuthor({ name:guild.name, iconURL:guild.iconURL({ dynamic:true }) })
@@ -101,7 +68,8 @@ function buildVCLB(guild) {
         .filter(([id]) => guild.members.cache.has(id) && !guild.members.cache.get(id).user.bot)
         .sort((a,b)=>b[1]-a[1])
         .slice(0,10);
-    const desc = arr.map(([id,min],i) => `${i+1} — <@${id}> • ${min} minutes`).join("\n") || "No VC activity yet";
+    const medals = ["🥇","🥈","🥉"];
+    const desc = arr.map(([id,min],i) => `${i<3?medals[i]+" ":""}${i+1} — <@${id}> • ${min} minutes`).join("\n") || "No VC activity yet";
     return new EmbedBuilder()
         .setColor(darkBlue)
         .setAuthor({ name:guild.name, iconURL:guild.iconURL({ dynamic:true }) })
@@ -110,10 +78,15 @@ function buildVCLB(guild) {
         .setFooter({ text: "Updates every 5 minutes" });
 }
 
-// --------------------
 // AUTO UPDATE
-// --------------------
-async function updateLB(guild, type){
+setInterval(()=>{
+    const guild = client.guilds.cache.get(YOUR_GUILD_ID);
+    if(!guild) return;
+    updateLB(guild,"chat");
+    updateLB(guild,"voice");
+},300000);
+
+async function updateLB(guild,type){
     const channelId = type==="chat"?chatLBChannelId:vcLBChannelId;
     if(!channelId) return;
     const channel = guild.channels.cache.get(channelId);
@@ -128,16 +101,8 @@ async function updateLB(guild, type){
         const newMsg = await channel.send({ embeds:[embed] });
         if(type==="chat") chatLBMessageId=newMsg.id;
         else vcLBMessageId=newMsg.id;
-        saveData();
     }catch(err){ console.log("LB update error:",err.message); }
 }
-
-setInterval(()=>{
-    const guild = client.guilds.cache.get(YOUR_GUILD_ID);
-    if(!guild) return;
-    updateLB(guild,"chat");
-    updateLB(guild,"voice");
-},300000);
 
 // --------------------
 // CHAT TRACKING
@@ -145,7 +110,6 @@ setInterval(()=>{
 client.on("messageCreate", msg=>{
     if(msg.guild?.id!==YOUR_GUILD_ID || msg.author.bot) return;
     chatMsgs.set(msg.author.id,(chatMsgs.get(msg.author.id)||0)+1);
-    saveData();
 });
 
 // --------------------
@@ -155,31 +119,30 @@ client.on("voiceStateUpdate", async(oldState,newState)=>{
     if(newState.guild.id!==YOUR_GUILD_ID) return;
     const userId = newState.id;
     const guild = newState.guild;
-    const member = newState.guild.members.cache.get(userId);
 
     // JOIN VC
     if(!oldState.channelId && newState.channelId){
         vcJoinTimestamps.set(userId,Date.now());
         const newChannel = newState.channel;
 
-        // Voice Master Join-To-Create
+        // join-to-create
         if(newChannel.name.toLowerCase().includes("join to create") && publicVCId){
             const vc = await guild.channels.create({
-                name:`${member.user.username}'s VC`,
+                name:`${newState.member.user.username}'s VC`,
                 type:ChannelType.GuildVoice,
                 parent:publicVCId
             });
             tempVCs.set(userId,vc.id);
             vcOwners.set(vc.id,userId);
-            await member.voice.setChannel(vc);
+            await newState.member.voice.setChannel(vc);
         }
 
-        // Voice Master Join Random
+        // join random
         if(newChannel.name.toLowerCase().includes("join random") && publicVCId){
             const available = guild.channels.cache.filter(c=>c.parentId===publicVCId && c.type===ChannelType.GuildVoice && c.members.size<(c.userLimit||99));
             if(available.size>0){
                 const randomVC = available.random();
-                await member.voice.setChannel(randomVC);
+                await newState.member.voice.setChannel(randomVC);
             }
         }
     }
@@ -190,19 +153,7 @@ client.on("voiceStateUpdate", async(oldState,newState)=>{
         if(joinTime){
             const mins = Math.floor((Date.now()-joinTime)/60000);
             vcTime.set(userId,(vcTime.get(userId)||0)+mins);
-            saveData();
             vcJoinTimestamps.delete(userId);
-        }
-
-        // Handle automatic VC tiers
-        if(member){
-            for(const tier of vcTiers){
-                if(vcTime.get(userId) >= tier.minutes && !member.roles.cache.has(tier.roleId)){
-                    await member.roles.add(tier.roleId).catch(()=>null);
-                } else if(vcTime.get(userId) < tier.minutes && member.roles.cache.has(tier.roleId)){
-                    await member.roles.remove(tier.roleId).catch(()=>null);
-                }
-            }
         }
 
         if(tempVCs.has(userId)){
@@ -220,6 +171,8 @@ client.on("voiceStateUpdate", async(oldState,newState)=>{
 // --------------------
 // COMMANDS
 // --------------------
+const vctier = require("./modules/vctier"); // make sure vctier.js is in modules/
+
 client.on("messageCreate", async message=>{
     if(!message.guild || message.guild.id!==YOUR_GUILD_ID) return;
     if(!message.content.startsWith(PREFIX)) return;
@@ -231,20 +184,8 @@ client.on("messageCreate", async message=>{
     const successEmbed = desc=>({ embeds:[embedMsg(desc)] });
 
     // --------------------
-    // HELP
-    if(cmd==="help"){
-        return message.reply({ embeds:[embedMsg(
-            "**Voice Master Commands:**\n"+
-            ",vmsetup\n"+
-            ",vmreset\n"+
-            ",vc lock/unlock/hide/unhide/kick/ban/permit/limit/info/rename/transfer/unmute\n"+
-            ",set #channel chatlb / vclb\n"+
-            ",upload lb / refresh lb"
-        )]});
-    }
-
+    // VC MASTER SETUP
     // --------------------
-    // VOICE MASTER SETUP
     if(cmd==="vmsetup"){
         try{
             const hub = await guild.channels.create({ name:"Voice Master Hub", type:ChannelType.GuildCategory });
@@ -276,11 +217,14 @@ client.on("messageCreate", async message=>{
         }
     }
 
+    // --------------------
+    // SET LEADERBOARD CHANNELS
+    // --------------------
     if(cmd==="set"){
         const ch = message.mentions.channels.first();
         if(!ch) return;
-        if(args[0]==="chatlb"){ chatLBChannelId=ch.id; saveData(); return message.reply(successEmbed(`Chat LB channel set to ${ch}`)); }
-        if(args[0]==="vclb"){ vcLBChannelId=ch.id; saveData(); return message.reply(successEmbed(`Voice LB channel set to ${ch}`)); }
+        if(args[0]==="chatlb"){ chatLBChannelId=ch.id; return message.reply(successEmbed(`Chat LB channel set to ${ch}`)); }
+        if(args[0]==="vclb"){ vcLBChannelId=ch.id; return message.reply(successEmbed(`Voice LB channel set to ${ch}`)); }
     }
 
     if((cmd==="upload"||cmd==="refresh") && args[0]==="lb"){
@@ -291,6 +235,7 @@ client.on("messageCreate", async message=>{
 
     // --------------------
     // VC COMMANDS
+    // --------------------
     if(cmd==="vc"){
         if(!channel) return message.reply(successEmbed("You must be in a voice channel."));
         const sub = args[0]?.toLowerCase();
@@ -368,29 +313,30 @@ client.on("messageCreate", async message=>{
     }
 
     // --------------------
-    // VC TIER COMMANDS (Admin only)
-    if(cmd==="vc" && args[0]==="tier"){
-        const sub = args[1]?.toLowerCase();
-        const role = message.mentions.roles.first();
-        const time = parseInt(args[2]);
+    // VC TIER COMMANDS
+    // --------------------
+    if(cmd === "tier") {
+        const sub = args[0];
 
-        if(sub==="add"){
-            if(!role || isNaN(time)) return message.reply(successEmbed("Provide a role and time in minutes"));
-            vcTiers.push({ roleId: role.id, minutes: time });
-            saveData();
-            return message.reply(successEmbed(`Added VC tier: ${role.name} at ${time} minutes`));
+        if(sub === "list") return vctier.list(message);
+        if(sub === "reset") return vctier.reset(message, args.slice(1));
+        if(sub === "reload") return vctier.reload(message);
+        if(sub === "remove") {
+            const tierNumber = Number(args[1]);
+            if(!tierNumber || isNaN(tierNumber)) return message.channel.send("❌ Tier number must be valid.");
+            return vctier.removeTier(message, tierNumber);
         }
-        if(sub==="remove"){
-            if(!role) return message.reply(successEmbed("Mention a role to remove"));
-            vcTiers = vcTiers.filter(t=>t.roleId!==role.id);
-            saveData();
-            return message.reply(successEmbed(`Removed VC tier: ${role.name}`));
-        }
-        if(sub==="view"){
-            if(vcTiers.length===0) return message.reply(successEmbed("No VC tiers set"));
-            const desc = vcTiers.map(t=>`<@&${t.roleId}> → ${t.minutes} minutes`).join("\n");
-            return message.reply({ embeds:[embedMsg(desc)] });
-        }
+
+        // Add/update tier: ,tier <number> @role <minutes>
+        const tierNumber = Number(args.shift());
+        const role = message.mentions.roles.first();
+        const minutes = Number(args.pop());
+
+        if(!tierNumber || isNaN(tierNumber)) return message.channel.send("❌ Tier must be a number.");
+        if(!role) return message.channel.send("❌ Mention a role.");
+        if(!minutes || isNaN(minutes)) return message.channel.send("❌ Minutes must be a number.");
+
+        return vctier.saveTier(message, tierNumber, role.id, minutes);
     }
 });
 
