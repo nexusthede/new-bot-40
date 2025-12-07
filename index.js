@@ -20,6 +20,8 @@ const client = new Client({
     ]
 });
 
+const fs = require("fs");
+
 const PREFIX = ",";
 const YOUR_GUILD_ID = "1441338778785419407";
 const darkBlue = "#00008B";
@@ -171,8 +173,6 @@ client.on("voiceStateUpdate", async(oldState,newState)=>{
 // --------------------
 // COMMANDS
 // --------------------
-const vctier = require("./modules/vctier"); // make sure vctier.js is in modules/
-
 client.on("messageCreate", async message=>{
     if(!message.guild || message.guild.id!==YOUR_GUILD_ID) return;
     if(!message.content.startsWith(PREFIX)) return;
@@ -316,27 +316,53 @@ client.on("messageCreate", async message=>{
     // VC TIER COMMANDS
     // --------------------
     if(cmd === "tier") {
-        const sub = args[0];
+        const sub = args[0]?.toLowerCase();
 
-        if(sub === "list") return vctier.list(message);
-        if(sub === "reset") return vctier.reset(message, args.slice(1));
-        if(sub === "reload") return vctier.reload(message);
+        // Reload tiers
+        if(sub === "reload") {
+            delete require.cache[require.resolve("./data.json")];
+            return message.channel.send("✅ VC tiers reloaded from data.json");
+        }
+
+        // Reset tier roles for a user
+        if(sub === "reset") {
+            const user = message.mentions.members.first();
+            if(!user) return message.channel.send("❌ Mention a user to reset.");
+            const data = require("./data.json");
+            data.vcTiers.forEach(t => {
+                const role = message.guild.roles.cache.get(t.role);
+                if(role && user.roles.cache.has(role.id)) user.roles.remove(role).catch(()=>null);
+            });
+            return message.channel.send(`✅ Tier roles reset for ${user.user.tag}`);
+        }
+
+        // Remove a tier
         if(sub === "remove") {
             const tierNumber = Number(args[1]);
             if(!tierNumber || isNaN(tierNumber)) return message.channel.send("❌ Tier number must be valid.");
-            return vctier.removeTier(message, tierNumber);
+            const data = require("./data.json");
+            const index = data.vcTiers.findIndex(t => t.number === tierNumber);
+            if(index === -1) return message.channel.send(`❌ Tier ${tierNumber} does not exist.`);
+            data.vcTiers.splice(index,1);
+            fs.writeFileSync("./data.json", JSON.stringify(data,null,4));
+            return message.channel.send(`✅ Tier ${tierNumber} removed.`);
         }
 
         // Add/update tier: ,tier <number> @role <minutes>
         const tierNumber = Number(args.shift());
         const role = message.mentions.roles.first();
         const minutes = Number(args.pop());
-
         if(!tierNumber || isNaN(tierNumber)) return message.channel.send("❌ Tier must be a number.");
         if(!role) return message.channel.send("❌ Mention a role.");
         if(!minutes || isNaN(minutes)) return message.channel.send("❌ Minutes must be a number.");
 
-        return vctier.saveTier(message, tierNumber, role.id, minutes);
+        const data = require("./data.json");
+        const index = data.vcTiers.findIndex(t => t.number === tierNumber);
+        if(index !== -1) data.vcTiers[index] = { number: tierNumber, role: role.id, minutes };
+        else data.vcTiers.push({ number: tierNumber, role: role.id, minutes });
+        fs.writeFileSync("./data.json", JSON.stringify(data,null,4));
+
+        return message.channel.send(`✅ Tier ${tierNumber} saved: <@&${role.id}> → ${minutes} minutes`);
     }
 });
 
