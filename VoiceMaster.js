@@ -1,16 +1,13 @@
-const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, PermissionsBitField, Events } = require("discord.js");
+const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, PermissionsBitField } = require("discord.js");
 
 module.exports = (client) => {
 
-  // IDs
   const triggerChannelId = "1482460435180552414"; // Join-to-create VC
   const categoryId = "1480977750218248222";       // VoiceMaster category
 
-  // Track VC owners
   const vcOwners = new Map();
-  const renamePending = new Map(); // track users prompted for rename
+  const renamePending = new Map();
 
-  // Join-to-create voice channels
   client.on("voiceStateUpdate", async (oldState, newState) => {
     if (newState.channelId === triggerChannelId) {
       const guild = newState.guild;
@@ -18,7 +15,7 @@ module.exports = (client) => {
 
       const channel = await guild.channels.create({
         name: `${member.user.username}'s channel`,
-        type: 2, // GUILD_VOICE
+        type: 2,
         parent: categoryId,
         permissionOverwrites: [
           {
@@ -36,11 +33,10 @@ module.exports = (client) => {
         ]
       });
 
-      // Move member into the channel
       member.voice.setChannel(channel);
       vcOwners.set(channel.id, member.id);
 
-      // Auto-delete empty channels (users inside stay)
+      // Auto-delete empty VCs
       const interval = setInterval(() => {
         if (!channel || channel.members.size === 0) {
           channel.delete().catch(() => {});
@@ -50,7 +46,6 @@ module.exports = (client) => {
       }, 5000);
     }
 
-    // Clean up old empty channels
     if (oldState.channelId) {
       const oldChannel = oldState.guild.channels.cache.get(oldState.channelId);
       if (oldChannel && oldChannel.parentId === categoryId && oldChannel.members.size === 0) {
@@ -60,7 +55,6 @@ module.exports = (client) => {
     }
   });
 
-  // Command handler
   client.on("messageCreate", async (message) => {
     if (message.author.bot) return;
     if (!message.content.startsWith(",")) return;
@@ -68,12 +62,9 @@ module.exports = (client) => {
     const args = message.content.slice(1).trim().split(/ +/);
     const command = args[0].toLowerCase();
 
-    // Interface command (admin only)
     if (command === "interface") {
       if (!message.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
-        const failEmbed = new EmbedBuilder()
-          .setDescription("You do not have permission to run this command.");
-        return message.channel.send({ embeds: [failEmbed] });
+        return message.channel.send({ embeds: [new EmbedBuilder().setDescription("You do not have permission to run this command.")] });
       }
 
       const embed = new EmbedBuilder()
@@ -88,15 +79,12 @@ module.exports = (client) => {
 <:vc_unhide:1477311594638606336> - [Reveals](https://discord.gg/3ytNyU2qtj) the voice channel
 <:vc_rename:1477312271926431987> - [Renames](https://discord.gg/3ytNyU2qtj) the voice channel
 <:vc_decrease:1477690349366280263> - [Decreases](https://discord.gg/3ytNyU2qtj) user limit
-<:vc_increase:147769032683028080) - [Increases](https://discord.gg/3ytNyU2qtj) user limit
+<:vc_increase:147769032683028080> - [Increases](https://discord.gg/3ytNyU2qtj) user limit
 <:vc_info:1477312480463294628> - [Shows](https://discord.gg/3ytNyU2qtj) voice channel info
 <:vc_kick:1477311772137619478> - [Kicks](https://discord.gg/3ytNyU2qtj) a user from the voice channel
 <:vc_claim:1477559856394403942> - [Claims](https://discord.gg/3ytNyU2qtj) ownership of the voice channel`
         )
-        .setAuthor({
-          name: message.guild.name,
-          iconURL: message.guild.iconURL({ dynamic: true })
-        });
+        .setAuthor({ name: message.guild.name, iconURL: message.guild.iconURL({ dynamic: true }) });
 
       const row1 = new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId("lock").setEmoji("1477309124537483439").setStyle(ButtonStyle.Danger),
@@ -108,7 +96,7 @@ module.exports = (client) => {
 
       const row2 = new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId("decrease").setEmoji("1477690349366280263").setStyle(ButtonStyle.Secondary),
-        new ButtonBuilder().setCustomId("increase").setEmoji("147769032683028080).setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId("increase").setEmoji("147769032683028080").setStyle(ButtonStyle.Secondary),
         new ButtonBuilder().setCustomId("info").setEmoji("1477312480463294628").setStyle(ButtonStyle.Primary),
         new ButtonBuilder().setCustomId("kick").setEmoji("1477311772137619478").setStyle(ButtonStyle.Danger),
         new ButtonBuilder().setCustomId("claim").setEmoji("1477559856394403942").setStyle(ButtonStyle.Success)
@@ -117,32 +105,22 @@ module.exports = (client) => {
       return message.channel.send({ embeds: [embed], components: [row1, row2] });
     }
 
-    // Handle rename reply if pending
     if (renamePending.has(message.author.id)) {
       const vc = renamePending.get(message.author.id);
       if (!vc || !vc.editable) {
         renamePending.delete(message.author.id);
         return;
       }
-      const newName = message.content.slice(0, 100); // max 100 chars
+      const newName = message.content.slice(0, 100);
       await vc.setName(newName).catch(() => {});
       renamePending.delete(message.author.id);
-      return message.channel.send({
-        embeds: [
-          new EmbedBuilder().setDescription(`Your **voice channel** has been **renamed to \`${newName}\`**.`)
-        ]
-      });
+      return message.channel.send({ embeds: [new EmbedBuilder().setDescription(`Your **voice channel** has been **renamed to \`${newName}\`**.`)] });
     }
 
-    // Unknown command embed (no color, auto-delete)
-    const unknownEmbed = new EmbedBuilder()
-      .setDescription(`The command \`${command}\` is not recognized.`);
-    message.channel.send({ embeds: [unknownEmbed] }).then(msg => {
-      setTimeout(() => msg.delete().catch(() => {}), 5000);
-    });
+    const unknownEmbed = new EmbedBuilder().setDescription(`The command \`${command}\` is not recognized.`);
+    message.channel.send({ embeds: [unknownEmbed] }).then(msg => setTimeout(() => msg.delete().catch(() => {}), 5000));
   });
 
-  // Button interactions
   client.on("interactionCreate", async (interaction) => {
     if (!interaction.isButton()) return;
 
@@ -154,7 +132,6 @@ module.exports = (client) => {
 
     const ownerId = vcOwners.get(channel.id);
     const isOwner = member.id === ownerId || member.permissions.has(PermissionsBitField.Flags.Administrator);
-
     const replyEmbed = (text) => new EmbedBuilder().setDescription(text);
 
     switch (interaction.customId) {
