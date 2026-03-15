@@ -3,12 +3,13 @@ const {
   ActionRowBuilder, 
   ButtonBuilder, 
   ButtonStyle, 
-  PermissionsBitField 
+  PermissionsBitField, 
+  Events 
 } = require("discord.js");
 
 module.exports = (client) => {
 
-  // Command handler
+  // Command listener
   client.on("messageCreate", async (message) => {
     if (message.author.bot) return;
 
@@ -17,15 +18,11 @@ module.exports = (client) => {
     const args = message.content.slice(prefix.length).trim().split(/ +/);
     const command = args.shift().toLowerCase();
 
-    // Interface command
     if (command === "interface") {
-      // Embed with your custom design
+      // Custom embed
       const embed = new EmbedBuilder()
         .setTitle("VoiceMaster Interface")
-        .setAuthor({ 
-          name: message.guild.name, 
-          iconURL: message.guild.iconURL({ dynamic: true }) 
-        })
+        .setAuthor({ name: message.guild.name, iconURL: message.guild.iconURL({ dynamic: true }) })
         .setDescription(
 `Use the buttons below to manage your voice channel.
 
@@ -60,57 +57,61 @@ module.exports = (client) => {
         new ButtonBuilder().setCustomId("claim").setEmoji("1477559856394403942").setStyle(ButtonStyle.Success)
       );
 
-      // Send embed in the channel so everyone can see and use
-      message.channel.send({ embeds: [embed], components: [row1, row2] });
+      await message.channel.send({ embeds: [embed], components: [row1, row2] });
     }
   });
 
-  // Interaction handler for buttons
-  client.on("interactionCreate", async (interaction) => {
+  // Button interactions
+  client.on(Events.InteractionCreate, async (interaction) => {
     if (!interaction.isButton()) return;
 
     const member = interaction.member;
     const voiceChannel = member.voice.channel;
 
-    // Restrict actions to VC owners or admins
-    if (!voiceChannel || (voiceChannel.ownerId && voiceChannel.ownerId !== member.id && !member.permissions.has(PermissionsBitField.Flags.Administrator))) {
+    if (!voiceChannel) {
+      return interaction.reply({ content: "You must be in a voice channel to use this button.", ephemeral: true });
+    }
+
+    // Only VC owner or admin can perform actions
+    const isOwner = voiceChannel.ownerId === member.id;
+    const isAdmin = member.permissions.has(PermissionsBitField.Flags.Administrator);
+    if (!isOwner && !isAdmin) {
       return interaction.reply({ content: "You do not have permission to manage this voice channel.", ephemeral: true });
     }
 
     switch (interaction.customId) {
       case "lock":
-        voiceChannel.permissionOverwrites.edit(interaction.guild.roles.everyone, { Connect: false });
+        await voiceChannel.permissionOverwrites.edit(interaction.guild.roles.everyone, { Connect: false });
         await interaction.reply({ content: "**Your voice channel has been locked.**", ephemeral: true });
         break;
       case "unlock":
-        voiceChannel.permissionOverwrites.edit(interaction.guild.roles.everyone, { Connect: true });
+        await voiceChannel.permissionOverwrites.edit(interaction.guild.roles.everyone, { Connect: true });
         await interaction.reply({ content: "**Your voice channel has been unlocked.**", ephemeral: true });
         break;
       case "hide":
-        voiceChannel.permissionOverwrites.edit(interaction.guild.roles.everyone, { ViewChannel: false });
+        await voiceChannel.permissionOverwrites.edit(interaction.guild.roles.everyone, { ViewChannel: false });
         await interaction.reply({ content: "**Your voice channel has been hidden.**", ephemeral: true });
         break;
       case "reveal":
-        voiceChannel.permissionOverwrites.edit(interaction.guild.roles.everyone, { ViewChannel: true });
+        await voiceChannel.permissionOverwrites.edit(interaction.guild.roles.everyone, { ViewChannel: true });
         await interaction.reply({ content: "**Your voice channel is now visible.**", ephemeral: true });
         break;
       case "rename":
-        await interaction.reply({ content: "Type the new name of your voice channel:", ephemeral: true });
-        // Handle rename in message collector separately
+        await interaction.reply({ content: "Type the new name of your voice channel now.", ephemeral: true });
+        // Optional: handle message collector for rename
         break;
       case "decrease":
-        voiceChannel.setUserLimit(Math.max(0, voiceChannel.userLimit - 1));
+        await voiceChannel.setUserLimit(Math.max(0, voiceChannel.userLimit - 1));
         await interaction.reply({ content: "**Voice channel user limit decreased.**", ephemeral: true });
         break;
       case "increase":
-        voiceChannel.setUserLimit(voiceChannel.userLimit + 1);
+        await voiceChannel.setUserLimit(voiceChannel.userLimit + 1);
         await interaction.reply({ content: "**Voice channel user limit increased.**", ephemeral: true });
         break;
       case "info":
         await interaction.reply({ content: `**Voice Channel Info:** Name: ${voiceChannel.name}, Users: ${voiceChannel.members.size}, Limit: ${voiceChannel.userLimit}`, ephemeral: true });
         break;
       case "kick":
-        // Kicking a member can be implemented here
         await interaction.reply({ content: "**Use Discord to manually remove members.**", ephemeral: true });
         break;
       case "claim":
@@ -118,7 +119,7 @@ module.exports = (client) => {
         await interaction.reply({ content: "**You claimed ownership of this voice channel.**", ephemeral: true });
         break;
       default:
-        await interaction.reply({ content: "Unknown action.", ephemeral: true });
+        await interaction.reply({ content: "Unknown button action.", ephemeral: true });
         break;
     }
   });
