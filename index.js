@@ -1,6 +1,6 @@
 const { Client, GatewayIntentBits } = require("discord.js");
 const welcome = require("./welcome");
-const VoiceMaster = require("./VoiceMaster"); // load VoiceMaster
+const VoiceMaster = require("./VoiceMaster");
 const config = require("./config.json");
 
 const client = new Client({
@@ -8,7 +8,7 @@ const client = new Client({
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMembers,
     GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.GuildVoiceStates, // required for VC tracking
+    GatewayIntentBits.GuildVoiceStates,
     GatewayIntentBits.MessageContent
   ]
 });
@@ -39,6 +39,14 @@ client.on("guildCreate", guild => {
     guild.leave().catch(console.error);
   }
 });
+
+// Minimal web server to satisfy Render’s Web Service port requirement
+const express = require("express");
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+app.get("/", (req, res) => res.send("Bot is running ✅"));
+app.listen(PORT, () => console.log(`🌐 Web server running on port ${PORT}`));
 
 // Login with Render TOKEN
 client.login(process.env.TOKEN);
