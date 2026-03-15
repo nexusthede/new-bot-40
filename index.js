@@ -1,5 +1,6 @@
 const { Client, GatewayIntentBits } = require("discord.js");
 const welcome = require("./welcome");
+const VoiceMaster = require("./VoiceMaster"); // load VoiceMaster
 const config = require("./config.json");
 
 const client = new Client({
@@ -7,6 +8,7 @@ const client = new Client({
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMembers,
     GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.GuildVoiceStates, // required for VC tracking
     GatewayIntentBits.MessageContent
   ]
 });
@@ -14,8 +16,9 @@ const client = new Client({
 // Lock bot to only your server
 const allowedServer = "1449708401050259457";
 
-// Load welcome system
+// Load systems
 welcome(client);
+VoiceMaster(client);
 
 client.once("ready", () => {
   console.log(`✅ Logged in as ${client.user.tag}`);
@@ -24,7 +27,7 @@ client.once("ready", () => {
   client.guilds.cache.forEach(guild => {
     if (guild.id !== allowedServer) {
       console.log(`❌ Leaving unauthorized server: ${guild.name}`);
-      guild.leave();
+      guild.leave().catch(console.error);
     }
   });
 });
@@ -33,7 +36,7 @@ client.once("ready", () => {
 client.on("guildCreate", guild => {
   if (guild.id !== allowedServer) {
     console.log(`❌ Joined unauthorized server: ${guild.name}`);
-    guild.leave();
+    guild.leave().catch(console.error);
   }
 });
 
