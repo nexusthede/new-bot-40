@@ -1,126 +1,214 @@
-const { 
-  EmbedBuilder, 
-  ActionRowBuilder, 
-  ButtonBuilder, 
-  ButtonStyle, 
-  PermissionsBitField, 
-  Events 
-} = require("discord.js");
+const {
+EmbedBuilder,
+ActionRowBuilder,
+ButtonBuilder,
+ButtonStyle,
+PermissionsBitField,
+Events,
+ChannelType
+} = require("discord.js")
+
+const joinChannel = "1482460435180552414"
+const category = "1480977750218248222"
+
+const owners = new Map()
 
 module.exports = (client) => {
 
-  // Command listener
-  client.on("messageCreate", async (message) => {
-    if (message.author.bot) return;
+client.on("messageCreate", async message => {
 
-    const prefix = ",";
-    if (!message.content.startsWith(prefix)) return;
-    const args = message.content.slice(prefix.length).trim().split(/ +/);
-    const command = args.shift().toLowerCase();
+if(message.author.bot) return
+if(!message.content.startsWith(",")) return
 
-    if (command === "interface") {
-      // Custom embed
-      const embed = new EmbedBuilder()
-        .setTitle("VoiceMaster Interface")
-        .setAuthor({ name: message.guild.name, iconURL: message.guild.iconURL({ dynamic: true }) })
-        .setDescription(
-`Use the buttons below to manage your voice channel.
+const args = message.content.slice(1).trim().split(/ +/)
+const cmd = args.shift().toLowerCase()
 
-**Buttons**
-<:vc_lock:1477309124537483439> - [Locks](https://discord.gg/3ytNyU2qtj) the voice channel
-<:vc_unlock:1477309329433559203> - [Unlocks](https://discord.gg/3ytNyU2qtj) the voice channel
-<:vc_hide:1477311897262096497> - [Hides](https://discord.gg/3ytNyU2qtj) the voice channel
-<:vc_unhide:1477311594638606336> - [Reveals](https://discord.gg/3ytNyU2qtj) the voice channel
-<:vc_rename:1477312271926431987> - [Renames](https://discord.gg/3ytNyU2qtj) the voice channel
-<:vc_decrease:1477690349366280263> - [Decreases](https://discord.gg/3ytNyU2qtj) user limit
-<:vc_increase:147769032683028080> - [Increases](https://discord.gg/3ytNyU2qtj) user limit
-<:vc_info:1477312480463294628> - [Shows](https://discord.gg/3ytNyU2qtj) voice channel info
-<:vc_kick:1477311772137619478> - [Kicks](https://discord.gg/3ytNyU2qtj) a user from the voice channel
-<:vc_claim:1477559856394403942> - [Claims](https://discord.gg/3ytNyU2qtj) ownership of the voice channel`
-        );
+// INTERFACE COMMAND
+if(cmd === "interface"){
 
-      // Buttons row 1
-      const row1 = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId("lock").setEmoji("1477309124537483439").setStyle(ButtonStyle.Danger),
-        new ButtonBuilder().setCustomId("unlock").setEmoji("1477309329433559203").setStyle(ButtonStyle.Success),
-        new ButtonBuilder().setCustomId("hide").setEmoji("1477311897262096497").setStyle(ButtonStyle.Secondary),
-        new ButtonBuilder().setCustomId("reveal").setEmoji("1477311594638606336").setStyle(ButtonStyle.Primary),
-        new ButtonBuilder().setCustomId("rename").setEmoji("1477312271926431987").setStyle(ButtonStyle.Secondary)
-      );
+if(!message.member.permissions.has(PermissionsBitField.Flags.Administrator)) return
 
-      // Buttons row 2
-      const row2 = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId("decrease").setEmoji("1477690349366280263").setStyle(ButtonStyle.Secondary),
-        new ButtonBuilder().setCustomId("increase").setEmoji("147769032683028080").setStyle(ButtonStyle.Secondary),
-        new ButtonBuilder().setCustomId("info").setEmoji("1477312480463294628").setStyle(ButtonStyle.Primary),
-        new ButtonBuilder().setCustomId("kick").setEmoji("1477311772137619478").setStyle(ButtonStyle.Danger),
-        new ButtonBuilder().setCustomId("claim").setEmoji("1477559856394403942").setStyle(ButtonStyle.Success)
-      );
+const embed = new EmbedBuilder()
+.setTitle("VoiceMaster Interface")
+.setAuthor({name: message.guild.name, iconURL: message.guild.iconURL({dynamic:true})})
+.setDescription(`Control the voice channels created from **join to create**
 
-      await message.channel.send({ embeds: [embed], components: [row1, row2] });
-    }
-  });
+**usage**
 
-  // Button interactions
-  client.on(Events.InteractionCreate, async (interaction) => {
-    if (!interaction.isButton()) return;
+<:vc_lock:1477309124537483439> - **lock** the voice channel
+<:vc_unlock:1477309329433559203> - **unlock** the voice channel
+<:vc_hide:1477311897262096497> - **hide** the voice channel
+<:vc_unhide:1477311594638606336> - **reveal** the voice channel
+<:vc_rename:1477312271926431987> - **rename** the voice channel
+<:vc_decrease:1477690349366280263> - **decrease** the member limit
+<:vc_increase:147769032683028080> - **increase** the member limit
+<:vc_info:1477312480463294628> - **info** about the voice channel
+<:vc_kick:1477311772137619478> - **kick** someone from the voice channel
+<:vc_claim:1477559856394403942> - **claim** the voice channel`)
 
-    const member = interaction.member;
-    const voiceChannel = member.voice.channel;
+const row1 = new ActionRowBuilder().addComponents(
+new ButtonBuilder().setCustomId("lock").setEmoji("1477309124537483439").setStyle(ButtonStyle.Secondary),
+new ButtonBuilder().setCustomId("unlock").setEmoji("1477309329433559203").setStyle(ButtonStyle.Secondary),
+new ButtonBuilder().setCustomId("hide").setEmoji("1477311897262096497").setStyle(ButtonStyle.Secondary),
+new ButtonBuilder().setCustomId("reveal").setEmoji("1477311594638606336").setStyle(ButtonStyle.Secondary),
+new ButtonBuilder().setCustomId("rename").setEmoji("1477312271926431987").setStyle(ButtonStyle.Secondary)
+)
 
-    if (!voiceChannel) {
-      return interaction.reply({ content: "You must be in a voice channel to use this button.", ephemeral: true });
-    }
+const row2 = new ActionRowBuilder().addComponents(
+new ButtonBuilder().setCustomId("decrease").setEmoji("1477690349366280263").setStyle(ButtonStyle.Secondary),
+new ButtonBuilder().setCustomId("increase").setEmoji("147769032683028080").setStyle(ButtonStyle.Secondary),
+new ButtonBuilder().setCustomId("info").setEmoji("1477312480463294628").setStyle(ButtonStyle.Secondary),
+new ButtonBuilder().setCustomId("kick").setEmoji("1477311772137619478").setStyle(ButtonStyle.Secondary),
+new ButtonBuilder().setCustomId("claim").setEmoji("1477559856394403942").setStyle(ButtonStyle.Secondary)
+)
 
-    // Only VC owner or admin can perform actions
-    const isOwner = voiceChannel.ownerId === member.id;
-    const isAdmin = member.permissions.has(PermissionsBitField.Flags.Administrator);
-    if (!isOwner && !isAdmin) {
-      return interaction.reply({ content: "You do not have permission to manage this voice channel.", ephemeral: true });
-    }
+message.channel.send({embeds:[embed],components:[row1,row2]})
+return
+}
 
-    switch (interaction.customId) {
-      case "lock":
-        await voiceChannel.permissionOverwrites.edit(interaction.guild.roles.everyone, { Connect: false });
-        await interaction.reply({ content: "**Your voice channel has been locked.**", ephemeral: true });
-        break;
-      case "unlock":
-        await voiceChannel.permissionOverwrites.edit(interaction.guild.roles.everyone, { Connect: true });
-        await interaction.reply({ content: "**Your voice channel has been unlocked.**", ephemeral: true });
-        break;
-      case "hide":
-        await voiceChannel.permissionOverwrites.edit(interaction.guild.roles.everyone, { ViewChannel: false });
-        await interaction.reply({ content: "**Your voice channel has been hidden.**", ephemeral: true });
-        break;
-      case "reveal":
-        await voiceChannel.permissionOverwrites.edit(interaction.guild.roles.everyone, { ViewChannel: true });
-        await interaction.reply({ content: "**Your voice channel is now visible.**", ephemeral: true });
-        break;
-      case "rename":
-        await interaction.reply({ content: "Type the new name of your voice channel now.", ephemeral: true });
-        // Optional: handle message collector for rename
-        break;
-      case "decrease":
-        await voiceChannel.setUserLimit(Math.max(0, voiceChannel.userLimit - 1));
-        await interaction.reply({ content: "**Voice channel user limit decreased.**", ephemeral: true });
-        break;
-      case "increase":
-        await voiceChannel.setUserLimit(voiceChannel.userLimit + 1);
-        await interaction.reply({ content: "**Voice channel user limit increased.**", ephemeral: true });
-        break;
-      case "info":
-        await interaction.reply({ content: `**Voice Channel Info:** Name: ${voiceChannel.name}, Users: ${voiceChannel.members.size}, Limit: ${voiceChannel.userLimit}`, ephemeral: true });
-        break;
-      case "kick":
-        await interaction.reply({ content: "**Use Discord to manually remove members.**", ephemeral: true });
-        break;
-      case "claim":
-        voiceChannel.ownerId = member.id;
-        await interaction.reply({ content: "**You claimed ownership of this voice channel.**", ephemeral: true });
-        break;
-      default:
-        await interaction.reply({ content: "Unknown button action.", ephemeral: true });
-        break;
-    }
-  });
-};
+// UNKNOWN COMMAND
+const unknown = new EmbedBuilder()
+.setTitle("Unknown Command")
+.setDescription("That command does not exist.")
+
+message.channel.send({embeds:[unknown]}).then(m=>setTimeout(()=>m.delete().catch(()=>{}),5000))
+
+})
+
+// BUTTON HANDLER
+client.on(Events.InteractionCreate, async interaction => {
+
+if(!interaction.isButton()) return
+
+const member = interaction.member
+const vc = member.voice.channel
+
+// NOT IN VC
+if(!vc){
+
+const fail = new EmbedBuilder()
+.setTitle("Failed")
+.setDescription("You must be in **voice channel** to use this.")
+
+return interaction.reply({embeds:[fail],ephemeral:true})
+
+}
+
+const owner = owners.get(vc.id)
+
+// NOT OWNER
+if(owner !== member.id && !member.permissions.has(PermissionsBitField.Flags.Administrator)){
+
+const fail = new EmbedBuilder()
+.setTitle("Failed")
+.setDescription("You do not own this **voice channel**.")
+
+return interaction.reply({embeds:[fail],ephemeral:true})
+
+}
+
+// BUTTON ACTIONS
+switch(interaction.customId){
+
+case "lock":
+
+await vc.permissionOverwrites.edit(interaction.guild.roles.everyone,{Connect:false})
+interaction.reply({content:"Your **voice channel** has been **locked**",ephemeral:true})
+break
+
+case "unlock":
+
+await vc.permissionOverwrites.edit(interaction.guild.roles.everyone,{Connect:true})
+interaction.reply({content:"Your **voice channel** has been **unlocked**",ephemeral:true})
+break
+
+case "hide":
+
+await vc.permissionOverwrites.edit(interaction.guild.roles.everyone,{ViewChannel:false})
+interaction.reply({content:"Your **voice channel** has been **hidden**",ephemeral:true})
+break
+
+case "reveal":
+
+await vc.permissionOverwrites.edit(interaction.guild.roles.everyone,{ViewChannel:true})
+interaction.reply({content:"Your **voice channel** has been **revealed**",ephemeral:true})
+break
+
+case "rename":
+
+await vc.setName(`${member.user.username}'s channel`)
+interaction.reply({content:"Your **voice channel** has been **renamed**",ephemeral:true})
+break
+
+case "decrease":
+
+await vc.setUserLimit(Math.max(vc.userLimit-1,0))
+interaction.reply({content:"Member limit **decreased**",ephemeral:true})
+break
+
+case "increase":
+
+await vc.setUserLimit(vc.userLimit+1)
+interaction.reply({content:"Member limit **increased**",ephemeral:true})
+break
+
+case "info":
+
+interaction.reply({content:`Channel: ${vc.name}\nMembers: ${vc.members.size}\nLimit: ${vc.userLimit}`,ephemeral:true})
+break
+
+case "kick":
+
+const user = vc.members.filter(m=>m.id!==member.id).first()
+if(user) user.voice.disconnect()
+interaction.reply({content:"User **kicked** from voice channel",ephemeral:true})
+break
+
+case "claim":
+
+owners.set(vc.id,member.id)
+interaction.reply({content:"You **claimed** the voice channel",ephemeral:true})
+break
+
+}
+
+})
+
+// JOIN TO CREATE + AUTO DELETE
+client.on("voiceStateUpdate", async (oldState,newState)=>{
+
+// JOIN
+if(newState.channelId === joinChannel){
+
+const vc = await newState.guild.channels.create({
+name:`${newState.member.user.username}'s channel`,
+type:ChannelType.GuildVoice,
+parent:category
+})
+
+owners.set(vc.id,newState.member.id)
+
+await newState.member.voice.setChannel(vc)
+
+}
+
+// DELETE EMPTY
+if(oldState.channel){
+
+const channel = oldState.channel
+
+if(channel.parentId !== category) return
+if(channel.id === joinChannel) return
+
+if(channel.members.size === 0){
+
+owners.delete(channel.id)
+channel.delete().catch(()=>{})
+
+}
+
+}
+
+})
+
+}
